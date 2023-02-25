@@ -28,6 +28,7 @@ const (
 )
 
 var (
+	envMessageBusDSN  = environment.NewVariable("MESSAGE_BUS_DSN", "", "DSN of the redis server.")
 	envMessageBusHost = environment.NewVariable("MESSAGE_BUS_HOST", "localhost", "Host of the redis server.")
 	envMessageBusPort = environment.NewVariable("MESSAGE_BUS_PORT", "6379", "Port of the redis server.")
 )
@@ -39,16 +40,33 @@ type Redis struct {
 	lastLogoutID     string
 }
 
+type redisDialer func() (redis.Conn, error)
+
 // New initializes a Redis instance.
 func New(lookup environment.Environmenter) *Redis {
-	addr := envMessageBusHost.Value(lookup) + ":" + envMessageBusPort.Value(lookup)
+	if envMessageBusDSN.Value(lookup) != "" {
+		return newByURL(envMessageBusDSN.Value(lookup))
+	}
 
+	addr := envMessageBusHost.Value(lookup) + ":" + envMessageBusPort.Value(lookup)
+	return newRedis(func() (redis.Conn, error) {
+		return redis.Dial("tcp", addr)
+	})
+}
+
+func newByURL(url string) *Redis {
+	return newRedis(func() (redis.Conn, error) {
+		return redis.DialURL(url)
+	})
+}
+
+func newRedis(dial redisDialer) *Redis {
 	pool := &redis.Pool{
 		MaxActive:   100,
 		Wait:        true,
 		MaxIdle:     10,
 		IdleTimeout: 240 * time.Second,
-		Dial:        func() (redis.Conn, error) { return redis.Dial("tcp", addr) },
+		Dial:        dial,
 	}
 
 	return &Redis{
