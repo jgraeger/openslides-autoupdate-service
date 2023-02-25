@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Set up Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: '1.20'
+
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v3
+
+    - name: go fmt
+      run: test -z $(gofmt -l .)
+
+    - name: go vet
+      run: go vet ./...
+
+    - name: golint
+      run: go install golang.org/x/lint/golint@latest && golint -set_exit_status ./...
+
+    - name: test
+      run: go test -timeout 30s -race ./...
+
+  build:
+    name: Build & Push
+    needs: [test]
+    runs-on: ubuntu-latest
+    if: (github.event.client_payload.pull_request.head.ref || github.ref) == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Build
+        run: docker build . --tag "ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_SHA}"
+      
+      - name: GHCR Login
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u $ --password-stdin
+
+      - name: Push image
+        run: docker push ghcr.io/$GITHUB_REPOSITORY:$GITHUB_SHA
